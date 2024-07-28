@@ -1,0 +1,15 @@
+[package]
+name = "derive_from_env_proc"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "derive_from_env_proc"
+path = "src/lib.rs"
+proc-macro = true
+
+[dependencies]
+quote = "*"
+syn = "*"
+proc-macro2 = "*"
+darling = "*"

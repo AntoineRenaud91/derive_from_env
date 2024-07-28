@@ -1,0 +1,10 @@
+[package]
+name = "derive_from_env"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+derive_from_env_proc = { path = "../derive_from_env_proc" }
+
+[dev-dependencies]
+temp-env = "0.3.6"

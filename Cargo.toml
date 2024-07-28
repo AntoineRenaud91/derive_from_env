@@ -1,0 +1,6 @@
+[workspace]
+members = [ 
+    "derive_from_env",
+    "derive_from_env_proc", 
+    "derive_from_env_tests"]
+resolver = "2"
