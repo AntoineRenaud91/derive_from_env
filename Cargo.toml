@@ -17,4 +17,4 @@ edition = "2021"
 derive_from_env_proc = { path = "derive_from_env_proc" }
 
 [dev-dependencies]
-temp-env = "0.3.6"
+temp-env = "0"

@@ -9,7 +9,7 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies]
-quote = "*"
-syn = "*"
-proc-macro2 = "*"
-darling = "*"
+quote = "1"
+syn = "2"
+proc-macro2 = "1"
+darling = "0"
