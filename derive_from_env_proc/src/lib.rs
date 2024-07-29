@@ -16,6 +16,8 @@ struct EnvField {
     no_prefix: bool,
     #[darling(default)]
     var: Option<syn::Lit>,
+    #[darling(default)]
+    from_str: bool,
 }
 
 #[proc_macro_derive(FromEnv, attributes(from_env))]
@@ -38,8 +40,9 @@ pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
                 let field_type = &field.ty;
                 let default_value = &field.default;
                 let no_prefix = field.no_prefix;
+                let from_str = field.from_str;
                 let var_name = &field.var;
-                if impl_from_str(field_type) {
+                if impl_from_str(field_type) || from_str {
                     match (default_value, var_name) {
                         (Some(default), Some(var_name)) => {
                             quote! {
@@ -111,13 +114,14 @@ pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
                 let field_type = &field.ty;
                 let default_value = &field.default;
                 let no_prefix = field.no_prefix;
+                let from_str = field.from_str;
                 let var_name = &field.var;
 
-                if impl_from_str(field_type) {
+                if impl_from_str(field_type) || from_str {
                     match (default_value, var_name) {
                         (Some(default), Some(var_name)) => {
                             quote! {
-                                #field_type::from_str(
+                                <#field_type as std::str::FromStr>::from_str(
                                     &std::env::var(#var_name.to_string())
                                         .unwrap_or_else(|_| #default.to_string())
                                 ).map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
@@ -129,7 +133,7 @@ pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
                         },
                         (Some(default), None) => {
                             quote! {
-                                #field_type::from_str(
+                                <#field_type as std::str::FromStr>::from_str(
                                     &std::env::var(format!("{prefix}_{}",#field_name.to_string().to_uppercase()))
                                         .unwrap_or_else(|_| #default.to_string())
                                 ).map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
@@ -141,7 +145,7 @@ pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
                         },
                         (None, Some(var_name)) => {
                             quote! {
-                                #field_type::from_str(&std::env::var(#var_name.to_string())
+                                <#field_type as std::str::FromStr>::from_str(&std::env::var(#var_name.to_string())
                                     .map_err(|_| ::derive_from_env::FromEnvError::MissingEnvVar{var_name: #var_name.to_string()})?)
                                     .map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
                                         var_name:#var_name.into(),
@@ -152,7 +156,7 @@ pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
                         },
                         (None, None) => {
                             quote! {
-                                #field_type::from_str(&std::env::var(format!("{prefix}_{}",#field_name.to_string().to_uppercase())).
+                                <#field_type as std::str::FromStr>::from_str(&std::env::var(format!("{prefix}_{}",#field_name.to_string().to_uppercase())).
                                     map_err(|_| ::derive_from_env::FromEnvError::MissingEnvVar{var_name: format!("{prefix}_{}",#field_name.to_string().to_uppercase()) })?)
                                     .map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
                                         var_name:format!("{prefix}_{}",#field_name.to_string().to_uppercase()),

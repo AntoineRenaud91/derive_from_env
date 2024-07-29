@@ -1,6 +1,6 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    path::PathBuf,
+    path::PathBuf, str::FromStr,
 };
 
 use derive_from_env::{FromEnv, FromEnvError};
@@ -27,21 +27,50 @@ fn test_0() {
     );
 }
 
+#[derive(Debug, PartialEq)]
+enum AuthMethod {
+    Bearer,
+    XAPIKey,
+}
+
+impl FromStr for AuthMethod {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Bearer" => Ok(AuthMethod::Bearer),
+            "X-API-Key" => Ok(AuthMethod::XAPIKey),
+            _ => Err("Invalid auth method".into()),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+#[derive(FromEnv)]
+struct AuthConfig {
+    #[from_env(from_str)]
+    auth_method: AuthMethod,
+    api_key: String,
+}
+
 #[derive(Debug, PartialEq, FromEnv)]
 struct AppConfig {
-    #[from_env(default = "8080")]
-    port: u16,
     #[from_env(default = "0.0.0.0")]
     addr: IpAddr,
+    port: u16,
     external_service: ServiceConfig,
+    #[from_env(no_prefix)]
+    auth: AuthConfig 
 }
 
 #[test]
 fn test_example() {
     with_vars(
         vec![
-            ("EXTERNAL_SERVICE_API_KEY", Some("test")),
+            ("EXTERNAL_SERVICE_API_KEY", Some("api-key")),
             ("EXT_SERVICE_URL", Some("http://myservice.com/api")),
+            ("PORT", Some("8080")),
+            ("AUTH_METHOD",Some("Bearer")),
+            ("API_KEY",Some("api-key"))
         ],
         || {
             let app_config = AppConfig::from_env().unwrap();
@@ -51,8 +80,12 @@ fn test_example() {
                     port: 8080,
                     addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                     external_service: ServiceConfig {
-                        api_key: "test".into(),
+                        api_key: "api-key".into(),
                         base_url: "http://myservice.com/api".into()
+                    },
+                    auth: AuthConfig {
+                        auth_method: AuthMethod::Bearer,
+                        api_key: "api-key".into()
                     }
                 }
             )
