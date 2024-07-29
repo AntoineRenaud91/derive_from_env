@@ -8,12 +8,12 @@
 //! [dependencies]
 //! derive_from_env = "0.1.0"
 //! ```
-//! 
-//! ```rust	
+//!
+//! ```rust
 //! use std::net::{IpAddr, Ipv4Addr};
 //! use std::str::FromStr;
 //! use derive_from_env::FromEnv;
-//! 
+//!
 //! #[derive(Debug, PartialEq, FromEnv)]
 //! struct ServiceConfig {
 //!     api_key: String,
@@ -25,7 +25,7 @@
 //!     Bearer,
 //!     XAPIKey,
 //! }
-//! 
+//!
 //! impl FromStr for AuthMethod {
 //!     type Err = String;
 //!     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -36,7 +36,7 @@
 //!         }
 //!     }
 //! }
-//! 
+//!
 //! #[derive(Debug, PartialEq)]
 //! #[derive(FromEnv)]
 //! struct AuthConfig {
@@ -44,7 +44,7 @@
 //!     auth_method: AuthMethod,
 //!     api_key: String,
 //! }
-//! 
+//!
 //! #[derive(Debug, PartialEq, FromEnv)]
 //! struct AppConfig {
 //!     #[from_env(default = "0.0.0.0")]
@@ -52,9 +52,9 @@
 //!     port: u16,
 //!     external_service: ServiceConfig,
 //!     #[from_env(no_prefix)]
-//!     auth: AuthConfig 
+//!     auth: AuthConfig
 //! }
-//! 
+//!
 //! fn main() {
 //!     std::env::set_var("EXTERNAL_SERVICE_API_KEY", "api-key");
 //!     std::env::set_var("EXT_SERVICE_URL", "http://external.service/api");
@@ -67,7 +67,7 @@
 //!         addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
 //!         external_service: ServiceConfig {
 //!             api_key: "api-key".into(),
-//!             base_url: "http://external.service/api".into() 
+//!             base_url: "http://external.service/api".into()
 //!         },
 //!         auth: AuthConfig {
 //!             auth_method: AuthMethod::Bearer,
@@ -75,9 +75,7 @@
 //!         }
 //!     });
 //! }
-//!``` 
-
-
+//!```
 
 pub mod _inner_trait;
 pub use derive_from_env_proc::FromEnv;

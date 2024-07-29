@@ -1,6 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
-    path::PathBuf, str::FromStr,
+    path::PathBuf,
+    str::FromStr,
 };
 
 use derive_from_env::{FromEnv, FromEnvError};
@@ -44,8 +45,7 @@ impl FromStr for AuthMethod {
     }
 }
 
-#[derive(Debug, PartialEq)]
-#[derive(FromEnv)]
+#[derive(Debug, PartialEq, FromEnv)]
 struct AuthConfig {
     #[from_env(from_str)]
     auth_method: AuthMethod,
@@ -59,7 +59,7 @@ struct AppConfig {
     port: u16,
     external_service: ServiceConfig,
     #[from_env(no_prefix)]
-    auth: AuthConfig 
+    auth: AuthConfig,
 }
 
 #[test]
@@ -69,8 +69,8 @@ fn test_example() {
             ("EXTERNAL_SERVICE_API_KEY", Some("api-key")),
             ("EXT_SERVICE_URL", Some("http://myservice.com/api")),
             ("PORT", Some("8080")),
-            ("AUTH_METHOD",Some("Bearer")),
-            ("API_KEY",Some("api-key"))
+            ("AUTH_METHOD", Some("Bearer")),
+            ("API_KEY", Some("api-key")),
         ],
         || {
             let app_config = AppConfig::from_env().unwrap();
