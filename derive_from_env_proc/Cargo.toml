@@ -2,7 +2,7 @@
 name = "derive_from_env_proc"
 authors = ["Antoine Renaud <antoine.renaud91@gmail.com>"]
 description = "Extract type safe structured data from environment variables with procedural derive macros"
-license = "Gnu General Public License v3.0"
+license = "GPL-3.0-only"
 repository = "https://github.com/AntoineRenaud91/derive_from_env"
 homepage = "https://github.com/AntoineRenaud91/derive_from_env"
 keywords = []
