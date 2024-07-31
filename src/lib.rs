@@ -49,7 +49,7 @@
 //! struct AppConfig {
 //!     #[from_env(default = "0.0.0.0")]
 //!     addr: IpAddr,
-//!     port: u16,
+//!     port: Option<u16>,
 //!     external_service: ServiceConfig,
 //!     #[from_env(no_prefix)]
 //!     auth: AuthConfig
@@ -63,7 +63,7 @@
 //!     std::env::set_var("API_KEY","api-key");
 //!     let app_config = AppConfig::from_env().unwrap();
 //!     assert_eq!(app_config, AppConfig {
-//!         port: 8080,
+//!         port: Some(8080),
 //!         addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
 //!         external_service: ServiceConfig {
 //!             api_key: "api-key".into(),

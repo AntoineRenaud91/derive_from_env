@@ -56,7 +56,7 @@ struct AuthConfig {
 struct AppConfig {
     #[from_env(default = "0.0.0.0")]
     addr: IpAddr,
-    port: u16,
+    port: Option<u16>,
     external_service: ServiceConfig,
     #[from_env(no_prefix)]
     auth: AuthConfig,
@@ -77,7 +77,7 @@ fn test_example() {
             assert_eq!(
                 app_config,
                 AppConfig {
-                    port: 8080,
+                    port: Some(8080),
                     addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                     external_service: ServiceConfig {
                         api_key: "api-key".into(),
@@ -103,7 +103,7 @@ struct SubConfig {
 struct Config {
     #[from_env(default = "0")]
     param_1: f64,
-    param_2: f64,
+    param_2: Option<f64>,
     #[from_env(no_prefix)]
     sub: SubConfig,
 }
@@ -111,18 +111,14 @@ struct Config {
 #[test]
 fn test_1() {
     with_vars(
-        vec![
-            ("PARAM_2", Some("0")),
-            ("PARAM_3", Some("/test/path")),
-            ("PARAM_4", Some("1")),
-        ],
+        vec![("PARAM_3", Some("/test/path")), ("PARAM_4", Some("1"))],
         || {
             let test = Config::from_env().unwrap();
             assert_eq!(
                 test,
                 Config {
                     param_1: 0.,
-                    param_2: 0.0,
+                    param_2: None,
                     sub: SubConfig {
                         param_3: PathBuf::from("/test/path"),
                         param_4: 1

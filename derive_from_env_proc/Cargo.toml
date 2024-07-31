@@ -8,7 +8,7 @@ homepage = "https://github.com/AntoineRenaud91/derive_from_env"
 keywords = []
 documentation = "https://docs.rs/derive_from_env"
 categories = ["config"]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 [lib]
