@@ -5,7 +5,7 @@ Extract type safe structured data from environment variables with procedural der
 - Add `derive_from_env` to your project's dependencies:
 ```toml
 [dependencies]
-derive_from_env = "0.1.1"
+derive_from_env = "0.1"
 ```
 - Usage example:
 ```rust	
