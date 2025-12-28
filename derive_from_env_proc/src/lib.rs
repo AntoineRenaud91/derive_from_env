@@ -3,7 +3,7 @@ extern crate proc_macro;
 use darling::FromField;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, GenericArgument, PathArguments, Type};
+use syn::{spanned::Spanned, Data, DeriveInput, GenericArgument, PathArguments, Type};
 
 #[derive(FromField)]
 #[darling(attributes(from_env))]
@@ -22,29 +22,45 @@ struct EnvField {
 
 #[proc_macro_derive(FromEnv, attributes(from_env))]
 pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
-    let DeriveInput { ident, data, .. } = syn::parse_macro_input!(item as syn::DeriveInput);
-    let struct_identifier = &ident;
+    let input = syn::parse_macro_input!(item as syn::DeriveInput);
+    match from_env_proc_macro_impl(&input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.into_compile_error().into(),
+    }
+}
 
-    match &data {
+fn from_env_proc_macro_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let struct_identifier = &input.ident;
+
+    match &input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => {
-            let env_fields = fields
-                .iter()
-                .map(|field| EnvField::from_field(field).unwrap())
-                .collect::<Vec<_>>();
-            let field_identifiers = env_fields
+            let mut env_fields = Vec::new();
+            for field in fields.iter() {
+                let env_field = EnvField::from_field(field)
+                    .map_err(|e| syn::Error::new(field.span(), e.to_string()))?;
+                if env_field.ident.is_none() {
+                    return Err(syn::Error::new(
+                        field.span(),
+                        "FromEnv does not support tuple structs; use named fields instead",
+                    ));
+                }
+                env_fields.push(env_field);
+            }
+
+            let field_identifiers: Vec<_> = env_fields
                 .iter()
                 .map(|f| f.ident.as_ref().unwrap())
-                .collect::<Vec<_>>();
-            let field_loaders = env_fields
+                .collect();
+            let field_loaders: Vec<_> = env_fields
                 .iter()
                 .map(|field| generate_field_loader(field, false))
-                .collect::<Vec<_>>();
-            let field_loaders_with_prefix = env_fields
+                .collect();
+            let field_loaders_with_prefix: Vec<_> = env_fields
                 .iter()
                 .map(|field| generate_field_loader(field, true))
-                .collect::<Vec<_>>();
+                .collect();
 
-            quote! {
+            Ok(quote! {
                 impl ::derive_from_env::_inner_trait::FromEnv for #struct_identifier {
                     fn from_env() -> Result<Self, ::derive_from_env::FromEnvError> {
                         use std::str::FromStr;
@@ -71,9 +87,16 @@ pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
                         <Self as ::derive_from_env::_inner_trait::FromEnv>::from_env_with_prefix(prefix)
                     }
                 }
-            }.into()
+            })
         }
-        _ => unimplemented!(),
+        Data::Enum(_) => Err(syn::Error::new(
+            input.ident.span(),
+            "FromEnv can only be derived for structs, not enums",
+        )),
+        Data::Union(_) => Err(syn::Error::new(
+            input.ident.span(),
+            "FromEnv can only be derived for structs, not unions",
+        )),
     }
 }
 
@@ -85,7 +108,7 @@ fn impl_from_str(ty: &Type) -> bool {
                 "u8" | "u16" | "u32" | "u64" | "u128" |
                 "f32" | "f64" | "bool" | "char" | "usize" |
                 "isize" | "String" | "IpAddr" | "SocketAddr" |
-                "PathBuf" | "IpV4Addr" | "IpV6Addr"
+                "PathBuf" | "Ipv4Addr" | "Ipv6Addr"
             )
         )
     )
@@ -132,75 +155,95 @@ fn generate_field_loader(field: &EnvField, prefix: bool) -> proc_macro2::TokenSt
         }
         if let Some(var_name) = var_name {
             quote! {
-                std::env::var(#var_name.to_string())
-                    .ok()
-                    .map(|s| #field_type::from_str(&s))
-                    .transpose()
-                    .map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
-                        var_name: #var_name.to_string(),
-                        str_value: std::env::var(#var_name.to_string()).unwrap(),
-                        expected_type: stringify!(#field_type).to_string()
-                    })?
+                match std::env::var(#var_name.to_string()) {
+                    Ok(s) => Some(#field_type::from_str(&s).map_err(|_| {
+                        ::derive_from_env::FromEnvError::ParsingFailure {
+                            var_name: #var_name.to_string(),
+                            str_value: s,
+                            expected_type: stringify!(#field_type).to_string(),
+                        }
+                    })?),
+                    Err(_) => None,
+                }
             }
         } else {
             quote! {
-                std::env::var(#env_var_name)
-                    .ok()
-                    .map(|s| #field_type::from_str(&s))
-                    .transpose()
-                    .map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
-                        var_name: #env_var_name.to_string(),
-                        str_value: std::env::var(#env_var_name).unwrap(),
-                        expected_type: stringify!(#field_type).to_string()
-                    })?
+                match std::env::var(#env_var_name) {
+                    Ok(s) => Some(#field_type::from_str(&s).map_err(|_| {
+                        ::derive_from_env::FromEnvError::ParsingFailure {
+                            var_name: #env_var_name.to_string(),
+                            str_value: s,
+                            expected_type: stringify!(#field_type).to_string(),
+                        }
+                    })?),
+                    Err(_) => None,
+                }
             }
         }
     } else if impl_from_str(field_type) || from_str || inner_field_type.is_some() {
         match (default_value, var_name) {
             (Some(default), Some(var_name)) => {
                 quote! {
-                    #field_type::from_str(
-                        &std::env::var(#var_name.to_string())
-                            .unwrap_or_else(|_| #default.to_string())
-                    ).map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
-                        var_name: #var_name.to_string(),
-                        str_value: std::env::var(#var_name.to_string()).unwrap_or_else(|_| #default.to_string()),
-                        expected_type: stringify!(#field_type).to_string()
-                    })?
+                    {
+                        let __env_val = std::env::var(#var_name.to_string())
+                            .unwrap_or_else(|_| #default.to_string());
+                        #field_type::from_str(&__env_val).map_err(|_| {
+                            ::derive_from_env::FromEnvError::ParsingFailure {
+                                var_name: #var_name.to_string(),
+                                str_value: __env_val,
+                                expected_type: stringify!(#field_type).to_string(),
+                            }
+                        })?
+                    }
                 }
             }
             (Some(default), None) => {
                 quote! {
-                    #field_type::from_str(
-                        &std::env::var(#env_var_name)
-                            .unwrap_or_else(|_| #default.to_string())
-                    ).map_err(|_|::derive_from_env::FromEnvError::ParsingFailure {
-                        var_name: #env_var_name.to_string(),
-                        str_value: std::env::var(#env_var_name).unwrap_or_else(|_| #default.to_string()),
-                        expected_type: stringify!(#field_type).to_string()
-                    })?
+                    {
+                        let __env_val = std::env::var(#env_var_name)
+                            .unwrap_or_else(|_| #default.to_string());
+                        #field_type::from_str(&__env_val).map_err(|_| {
+                            ::derive_from_env::FromEnvError::ParsingFailure {
+                                var_name: #env_var_name.to_string(),
+                                str_value: __env_val,
+                                expected_type: stringify!(#field_type).to_string(),
+                            }
+                        })?
+                    }
                 }
             }
             (None, Some(var_name)) => {
                 quote! {
-                    #field_type::from_str(&std::env::var(#var_name.to_string())
-                        .map_err(|_| ::derive_from_env::FromEnvError::MissingEnvVar{var_name: #var_name.to_string()})?)
-                        .map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
-                            var_name: #var_name.to_string(),
-                            str_value: std::env::var(#var_name.to_string()).unwrap(),
-                            expected_type: stringify!(#field_type).to_string()
+                    {
+                        let __env_val = std::env::var(#var_name.to_string())
+                            .map_err(|_| ::derive_from_env::FromEnvError::MissingEnvVar {
+                                var_name: #var_name.to_string(),
+                            })?;
+                        #field_type::from_str(&__env_val).map_err(|_| {
+                            ::derive_from_env::FromEnvError::ParsingFailure {
+                                var_name: #var_name.to_string(),
+                                str_value: __env_val,
+                                expected_type: stringify!(#field_type).to_string(),
+                            }
                         })?
+                    }
                 }
             }
             (None, None) => {
                 quote! {
-                    #field_type::from_str(&std::env::var(#env_var_name)
-                        .map_err(|_| ::derive_from_env::FromEnvError::MissingEnvVar{var_name: #env_var_name.to_string()})?)
-                        .map_err(|_| ::derive_from_env::FromEnvError::ParsingFailure{
-                            var_name: #env_var_name.to_string(),
-                            str_value: std::env::var(#env_var_name).unwrap(),
-                            expected_type: stringify!(#field_type).to_string()
+                    {
+                        let __env_val = std::env::var(#env_var_name)
+                            .map_err(|_| ::derive_from_env::FromEnvError::MissingEnvVar {
+                                var_name: #env_var_name.to_string(),
+                            })?;
+                        #field_type::from_str(&__env_val).map_err(|_| {
+                            ::derive_from_env::FromEnvError::ParsingFailure {
+                                var_name: #env_var_name.to_string(),
+                                str_value: __env_val,
+                                expected_type: stringify!(#field_type).to_string(),
+                            }
                         })?
+                    }
                 }
             }
         }

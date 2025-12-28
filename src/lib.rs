@@ -77,6 +77,7 @@
 //! }
 //!```
 
+#[doc(hidden)]
 pub mod _inner_trait;
 pub use derive_from_env_proc::FromEnv;
 
@@ -91,3 +92,26 @@ pub enum FromEnvError {
         str_value: String,
     },
 }
+
+impl std::fmt::Display for FromEnvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FromEnvError::MissingEnvVar { var_name } => {
+                write!(f, "missing required environment variable: {}", var_name)
+            }
+            FromEnvError::ParsingFailure {
+                var_name,
+                expected_type,
+                str_value,
+            } => {
+                write!(
+                    f,
+                    "failed to parse environment variable {} as {}: got {:?}",
+                    var_name, expected_type, str_value
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for FromEnvError {}

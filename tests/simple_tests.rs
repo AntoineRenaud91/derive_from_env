@@ -1,8 +1,4 @@
-use std::{
-    net::{IpAddr, Ipv4Addr},
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{net::Ipv6Addr, path::PathBuf, str::FromStr};
 
 use derive_from_env::{FromEnv, FromEnvError};
 use temp_env::with_vars;
@@ -22,8 +18,14 @@ fn test_0() {
             ("EXT_SERVICE_URL", Some("test")),
         ],
         || {
-            let service_config = ServiceConfig::from_env();
-            println!("{:?}", service_config)
+            let service_config = ServiceConfig::from_env().unwrap();
+            assert_eq!(
+                service_config,
+                ServiceConfig {
+                    api_key: "api-key".into(),
+                    base_url: "test".into(),
+                }
+            );
         },
     );
 }
@@ -54,8 +56,8 @@ struct AuthConfig {
 
 #[derive(Debug, PartialEq, FromEnv)]
 struct AppConfig {
-    #[from_env(default = "0.0.0.0")]
-    addr: IpAddr,
+    #[from_env(default = "0:0:0:0:0:0:0:0")]
+    addr: Ipv6Addr,
     port: Option<u16>,
     external_service: ServiceConfig,
     #[from_env(no_prefix)]
@@ -78,7 +80,7 @@ fn test_example() {
                 app_config,
                 AppConfig {
                     port: Some(8080),
-                    addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+                    addr: Ipv6Addr::from_str("0:0:0:0:0:0:0:0").unwrap(),
                     external_service: ServiceConfig {
                         api_key: "api-key".into(),
                         base_url: "http://myservice.com/api".into()
