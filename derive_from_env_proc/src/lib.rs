@@ -1,9 +1,16 @@
 extern crate proc_macro;
 
-use darling::FromField;
+use darling::{FromDeriveInput, FromField};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{spanned::Spanned, Data, DeriveInput, GenericArgument, PathArguments, Type};
+
+#[derive(FromDeriveInput)]
+#[darling(attributes(from_env), supports(struct_named))]
+struct EnvStruct {
+    #[darling(default)]
+    prefix: Option<String>,
+}
 
 #[derive(FromField)]
 #[darling(attributes(from_env))]
@@ -17,7 +24,9 @@ struct EnvField {
     #[darling(default)]
     var: Option<syn::Lit>,
     #[darling(default)]
-    from_str: bool,
+    rename: Option<String>,
+    #[darling(default)]
+    flatten: bool,
 }
 
 #[proc_macro_derive(FromEnv, attributes(from_env))]
@@ -31,6 +40,11 @@ pub fn from_env_proc_macro(item: TokenStream) -> TokenStream {
 
 fn from_env_proc_macro_impl(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let struct_identifier = &input.ident;
+
+    // Parse struct-level attributes
+    let env_struct = EnvStruct::from_derive_input(input)
+        .map_err(|e| syn::Error::new(input.ident.span(), e.to_string()))?;
+    let struct_prefix = env_struct.prefix;
 
     match &input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => {
@@ -51,27 +65,46 @@ fn from_env_proc_macro_impl(input: &DeriveInput) -> syn::Result<proc_macro2::Tok
                 .iter()
                 .map(|f| f.ident.as_ref().unwrap())
                 .collect();
-            let field_loaders: Vec<_> = env_fields
-                .iter()
-                .map(|field| generate_field_loader(field, false))
-                .collect();
-            let field_loaders_with_prefix: Vec<_> = env_fields
-                .iter()
-                .map(|field| generate_field_loader(field, true))
-                .collect();
+            let field_loaders_with_prefix: Vec<_> =
+                env_fields.iter().map(generate_field_loader).collect();
+
+            // If struct has a prefix, from_env() uses it; otherwise no prefix
+            // from_env_with_prefix combines incoming prefix with struct's own prefix
+            let (from_env_impl, prefix_setup) = if let Some(ref prefix) = struct_prefix {
+                // Strip trailing underscore if present for consistent formatting
+                let struct_prefix = prefix.trim_end_matches('_');
+                (
+                    quote! {
+                        fn from_env() -> Result<Self, ::derive_from_env::FromEnvError> {
+                            Self::from_env_with_prefix("")
+                        }
+                    },
+                    quote! {
+                        let prefix = if prefix.is_empty() {
+                            #struct_prefix.to_string()
+                        } else {
+                            format!("{}_{}", prefix, #struct_prefix)
+                        };
+                        let prefix = prefix.as_str();
+                    },
+                )
+            } else {
+                (
+                    quote! {
+                        fn from_env() -> Result<Self, ::derive_from_env::FromEnvError> {
+                            Self::from_env_with_prefix("")
+                        }
+                    },
+                    quote! {},
+                )
+            };
 
             Ok(quote! {
                 impl ::derive_from_env::_inner_trait::FromEnv for #struct_identifier {
-                    fn from_env() -> Result<Self, ::derive_from_env::FromEnvError> {
-                        use std::str::FromStr;
-                        Ok(Self {
-                            #(
-                                #field_identifiers: #field_loaders
-                            ),*
-                        })
-                    }
+                    #from_env_impl
                     fn from_env_with_prefix(prefix: &str) -> Result<Self, ::derive_from_env::FromEnvError> {
                         use std::str::FromStr;
+                        #prefix_setup
                         Ok(Self {
                             #(
                                 #field_identifiers: #field_loaders_with_prefix
@@ -100,20 +133,6 @@ fn from_env_proc_macro_impl(input: &DeriveInput) -> syn::Result<proc_macro2::Tok
     }
 }
 
-fn impl_from_str(ty: &Type) -> bool {
-    matches!(ty,
-        Type::Path(type_path) if type_path.path.segments.iter().all(|seg|
-            matches!(seg.ident.to_string().as_str(),
-                "i8" | "i16" | "i32" | "i64" | "i128" |
-                "u8" | "u16" | "u32" | "u64" | "u128" |
-                "f32" | "f64" | "bool" | "char" | "usize" |
-                "isize" | "String" | "IpAddr" | "SocketAddr" |
-                "PathBuf" | "Ipv4Addr" | "Ipv6Addr"
-            )
-        )
-    )
-}
-
 fn extract_inner_type_if_option(ty: &Type) -> Option<&Type> {
     if let Type::Path(type_path) = ty {
         if type_path.qself.is_none() && type_path.path.segments.len() == 1 {
@@ -132,35 +151,59 @@ fn extract_inner_type_if_option(ty: &Type) -> Option<&Type> {
     None
 }
 
-fn generate_field_loader(field: &EnvField, prefix: bool) -> proc_macro2::TokenStream {
+fn generate_field_loader(field: &EnvField) -> proc_macro2::TokenStream {
     let field_name = field.ident.as_ref().unwrap().to_string();
     let field_type = &field.ty;
     let inner_field_type = extract_inner_type_if_option(field_type);
     let default_value = &field.default;
     let no_prefix = field.no_prefix;
-    let from_str = field.from_str;
+    let flatten = field.flatten;
     let var_name = &field.var;
+    let rename = &field.rename;
 
-    let env_var_name = if prefix {
-        quote! { format!("{}_{}", prefix, #field_name.to_uppercase()) }
-    } else {
-        quote! { #field_name.to_uppercase() }
-    };
-    if let Some(field_type) = inner_field_type {
-        if !(impl_from_str(field_type) || from_str) {
-            panic!("Inner type of Option must implement FromStr");
+    // Use rename if provided, otherwise use field name
+    let name_part = rename.as_ref().unwrap_or(&field_name);
+
+    // Build env var name: if prefix is empty, just use name; otherwise PREFIX_NAME
+    let env_var_name = quote! {
+        if prefix.is_empty() {
+            #name_part.to_uppercase()
+        } else {
+            format!("{}_{}", prefix, #name_part.to_uppercase())
         }
+    };
+
+    // Handle flatten (nested structs)
+    if flatten {
         if default_value.is_some() {
-            panic!("Default value is not supported for Option fields");
+            panic!("default is not supported for flatten fields");
+        }
+        if var_name.is_some() {
+            panic!("var is not supported for flatten fields");
+        }
+        if no_prefix {
+            // no_prefix: pass current prefix unchanged (don't add field name)
+            quote! {
+                <#field_type as ::derive_from_env::_inner_trait::FromEnv>::from_env_with_prefix(prefix)?
+            }
+        } else {
+            // Normal: add field name to prefix chain
+            quote! {
+                <#field_type as ::derive_from_env::_inner_trait::FromEnv>::from_env_with_prefix(&#env_var_name)?
+            }
+        }
+    } else if let Some(inner_type) = inner_field_type {
+        // Option<T> field
+        if default_value.is_some() {
+            panic!("default is not supported for Option fields");
         }
         if let Some(var_name) = var_name {
             quote! {
                 match std::env::var(#var_name.to_string()) {
-                    Ok(s) => Some(#field_type::from_str(&s).map_err(|_| {
+                    Ok(s) => Some(#inner_type::from_str(&s).map_err(|_| {
                         ::derive_from_env::FromEnvError::ParsingFailure {
                             var_name: #var_name.to_string(),
-                            str_value: s,
-                            expected_type: stringify!(#field_type).to_string(),
+                            expected_type: stringify!(#inner_type).to_string(),
                         }
                     })?),
                     Err(_) => None,
@@ -169,18 +212,18 @@ fn generate_field_loader(field: &EnvField, prefix: bool) -> proc_macro2::TokenSt
         } else {
             quote! {
                 match std::env::var(#env_var_name) {
-                    Ok(s) => Some(#field_type::from_str(&s).map_err(|_| {
+                    Ok(s) => Some(#inner_type::from_str(&s).map_err(|_| {
                         ::derive_from_env::FromEnvError::ParsingFailure {
                             var_name: #env_var_name.to_string(),
-                            str_value: s,
-                            expected_type: stringify!(#field_type).to_string(),
+                            expected_type: stringify!(#inner_type).to_string(),
                         }
                     })?),
                     Err(_) => None,
                 }
             }
         }
-    } else if impl_from_str(field_type) || from_str || inner_field_type.is_some() {
+    } else {
+        // Regular FromStr field
         match (default_value, var_name) {
             (Some(default), Some(var_name)) => {
                 quote! {
@@ -190,7 +233,6 @@ fn generate_field_loader(field: &EnvField, prefix: bool) -> proc_macro2::TokenSt
                         #field_type::from_str(&__env_val).map_err(|_| {
                             ::derive_from_env::FromEnvError::ParsingFailure {
                                 var_name: #var_name.to_string(),
-                                str_value: __env_val,
                                 expected_type: stringify!(#field_type).to_string(),
                             }
                         })?
@@ -205,7 +247,6 @@ fn generate_field_loader(field: &EnvField, prefix: bool) -> proc_macro2::TokenSt
                         #field_type::from_str(&__env_val).map_err(|_| {
                             ::derive_from_env::FromEnvError::ParsingFailure {
                                 var_name: #env_var_name.to_string(),
-                                str_value: __env_val,
                                 expected_type: stringify!(#field_type).to_string(),
                             }
                         })?
@@ -222,7 +263,6 @@ fn generate_field_loader(field: &EnvField, prefix: bool) -> proc_macro2::TokenSt
                         #field_type::from_str(&__env_val).map_err(|_| {
                             ::derive_from_env::FromEnvError::ParsingFailure {
                                 var_name: #var_name.to_string(),
-                                str_value: __env_val,
                                 expected_type: stringify!(#field_type).to_string(),
                             }
                         })?
@@ -239,28 +279,11 @@ fn generate_field_loader(field: &EnvField, prefix: bool) -> proc_macro2::TokenSt
                         #field_type::from_str(&__env_val).map_err(|_| {
                             ::derive_from_env::FromEnvError::ParsingFailure {
                                 var_name: #env_var_name.to_string(),
-                                str_value: __env_val,
                                 expected_type: stringify!(#field_type).to_string(),
                             }
                         })?
                     }
                 }
-            }
-        }
-    } else {
-        if default_value.is_some() {
-            panic!("Default value is not supported for structs");
-        }
-        if var_name.is_some() {
-            panic!("Variable name specification is not suited for structured fields")
-        }
-        if no_prefix {
-            quote! {
-                <#field_type as ::derive_from_env::_inner_trait::FromEnv>::from_env()?
-            }
-        } else {
-            quote! {
-                <#field_type as ::derive_from_env::_inner_trait::FromEnv>::from_env_with_prefix(&#env_var_name)?
             }
         }
     }
