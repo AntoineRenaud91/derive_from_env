@@ -10,11 +10,11 @@ homepage = "https://github.com/AntoineRenaud91/derive_from_env"
 keywords = ["environment", "env", "config", "derive", "macro"]
 documentation = "https://docs.rs/derive_from_env"
 categories = ["config"]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 
 [dependencies]
-derive_from_env_proc = {version = "1.0.0", path="derive_from_env_proc"}
+derive_from_env_proc = {version = "1.0.1", path="derive_from_env_proc"}
 
 [dev-dependencies]
 temp-env = "0.3"
