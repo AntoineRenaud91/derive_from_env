@@ -1,5 +1,8 @@
 # derive_from_env
 
+[![Crates.io](https://img.shields.io/crates/v/derive_from_env.svg)](https://crates.io/crates/derive_from_env)
+[![Documentation](https://docs.rs/derive_from_env/badge.svg)](https://docs.rs/derive_from_env)
+
 Extract type-safe structured configuration from environment variables using procedural derive macros.
 
 All types are parsed using the [`FromStr`](https://doc.rust-lang.org/std/str/trait.FromStr.html) trait, making it easy to use with any type that implements it - including your own custom types.
@@ -26,6 +29,21 @@ struct Config {
 fn main() {
     // Reads from HOST, PORT, DEBUG environment variables
     let config = Config::from_env().unwrap();
+}
+```
+
+## Struct Attributes
+
+### `prefix = "PREFIX_"`
+
+Sets a prefix for all environment variables in the struct.
+
+```rust
+#[derive(FromEnv)]
+#[from_env(prefix = "MYAPP_")]
+struct Config {
+    host: String,  // Reads from MYAPP_HOST
+    port: u16,     // Reads from MYAPP_PORT
 }
 ```
 
@@ -73,7 +91,7 @@ struct Config {
 
 ### `flatten`
 
-Marks a field as a nested struct. Required for any field that is itself a struct deriving `FromEnv`.
+Marks a field as a nested struct. Required for any field that is itself a struct deriving `FromEnv` but not implementing `FromStr`.
 
 ```rust
 #[derive(FromEnv)]
@@ -89,6 +107,25 @@ struct Config {
 }
 ```
 
+Struct prefixes combine when nesting structs:
+
+```rust
+#[derive(FromEnv)]
+#[from_env(prefix = "SERVICE_")]
+struct ServiceConfig {
+    host: String,
+    port: u16,
+}
+
+#[derive(FromEnv)]
+#[from_env(prefix = "APP_")]
+struct Config {
+    #[from_env(flatten)]
+    database: DatabaseConfig,  // Reads from APP_DATABASE_SERVICE_HOST, APP_DATABASE_SERVICE_PORT
+}
+```
+
+
 ### `no_prefix`
 
 Used with `flatten` to prevent adding the field name to the prefix chain.
@@ -99,39 +136,6 @@ Used with `flatten` to prevent adding the field name to the prefix chain.
 struct Config {
     #[from_env(flatten, no_prefix)]
     database: DatabaseConfig,  // Reads from APP_HOST, APP_PORT (not APP_DATABASE_HOST)
-}
-```
-
-## Struct Attributes
-
-### `prefix = "PREFIX_"`
-
-Sets a prefix for all environment variables in the struct.
-
-```rust
-#[derive(FromEnv)]
-#[from_env(prefix = "MYAPP_")]
-struct Config {
-    host: String,  // Reads from MYAPP_HOST
-    port: u16,     // Reads from MYAPP_PORT
-}
-```
-
-Prefixes combine when nesting structs:
-
-```rust
-#[derive(FromEnv)]
-#[from_env(prefix = "DB_")]
-struct DatabaseConfig {
-    host: String,
-    port: u16,
-}
-
-#[derive(FromEnv)]
-#[from_env(prefix = "APP_")]
-struct Config {
-    #[from_env(flatten)]
-    database: DatabaseConfig,  // Reads from APP_DATABASE_DB_HOST, APP_DATABASE_DB_PORT
 }
 ```
 
@@ -210,79 +214,6 @@ fn main() {
             eprintln!("Failed to parse {} as {}", var_name, expected_type);
         }
     }
-}
-```
-
-## Complete Example
-
-```rust
-use std::net::IpAddr;
-use std::str::FromStr;
-use derive_from_env::FromEnv;
-
-#[derive(Debug, PartialEq)]
-enum AuthMethod {
-    Bearer,
-    ApiKey,
-}
-
-impl FromStr for AuthMethod {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Bearer" => Ok(AuthMethod::Bearer),
-            "ApiKey" => Ok(AuthMethod::ApiKey),
-            _ => Err("Invalid auth method".into()),
-        }
-    }
-}
-
-#[derive(FromEnv)]
-struct AuthConfig {
-    auth_method: AuthMethod,
-    api_key: String,
-}
-
-#[derive(FromEnv)]
-struct DatabaseConfig {
-    host: String,
-    #[from_env(default = "5432")]
-    port: u16,
-}
-
-#[derive(FromEnv)]
-#[from_env(prefix = "APP_")]
-struct AppConfig {
-    #[from_env(default = "0.0.0.0")]
-    bind_addr: IpAddr,
-
-    #[from_env(default = "8080")]
-    port: u16,
-
-    debug: Option<bool>,
-
-    #[from_env(flatten)]
-    database: DatabaseConfig,
-
-    #[from_env(flatten, no_prefix)]
-    auth: AuthConfig,
-}
-
-fn main() {
-    // Set environment variables
-    std::env::set_var("APP_DATABASE_HOST", "localhost");
-    std::env::set_var("AUTH_METHOD", "Bearer");
-    std::env::set_var("API_KEY", "secret");
-
-    let config = AppConfig::from_env().unwrap();
-
-    assert_eq!(config.bind_addr, "0.0.0.0".parse().unwrap());
-    assert_eq!(config.port, 8080);
-    assert_eq!(config.debug, None);
-    assert_eq!(config.database.host, "localhost");
-    assert_eq!(config.database.port, 5432);
-    assert_eq!(config.auth.auth_method, AuthMethod::Bearer);
-    assert_eq!(config.auth.api_key, "secret");
 }
 ```
 

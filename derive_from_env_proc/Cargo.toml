@@ -8,8 +8,8 @@ homepage = "https://github.com/AntoineRenaud91/derive_from_env"
 keywords = []
 documentation = "https://docs.rs/derive_from_env"
 categories = ["config"]
-version = "1.0.0"
-edition = "2021"
+version = "1.0.1"
+edition = "2024"
 
 [lib]
 name = "derive_from_env_proc"
